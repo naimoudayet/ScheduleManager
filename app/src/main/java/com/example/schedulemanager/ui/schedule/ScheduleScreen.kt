@@ -1,114 +1,132 @@
 package com.example.schedulemanager.ui.schedule
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.schedulemanager.model.ClassSession
+import com.example.schedulemanager.model.AppStyle
 import com.example.schedulemanager.model.currentDayIndex
-import com.example.schedulemanager.model.currentMinutes
 import com.example.schedulemanager.model.dayNames
-import com.example.schedulemanager.ui.ScheduleTile
 import com.example.schedulemanager.ui.session.EditorTarget
-import com.example.schedulemanager.ui.session.SessionEditorSheet
-import kotlinx.coroutines.delay
+import com.example.schedulemanager.ui.session.SessionEditor
+import com.example.schedulemanager.ui.family.FamilyBar
+import com.example.schedulemanager.ui.family.RightNowStrip
+import com.example.schedulemanager.ui.share.ImportActions
+import com.example.schedulemanager.ui.share.ImportFlowDialogs
+import com.example.schedulemanager.ui.share.rememberImportFlowState
+import com.example.schedulemanager.ui.theme.LocalAppTokens
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The main screen. The data, the day pager, the ⋮ menu, the editor and importing are shared;
+ * the header, day picker, list and add button come from the active theme.
+ */
 @Composable
 fun ScheduleScreen(
     onOpenSettings: () -> Unit,
+    onShare: () -> Unit,
     viewModel: ScheduleViewModel = viewModel(factory = ScheduleViewModel.Factory),
 ) {
+    val tokens = LocalAppTokens.current
     val pagerState = rememberPagerState(initialPage = currentDayIndex()) { dayNames.size }
     val scope = rememberCoroutineScope()
+    val week by viewModel.week.collectAsState()
     val classrooms by viewModel.classrooms.collectAsState()
     val subjects by viewModel.subjects.collectAsState()
-    var editorTarget by remember { mutableStateOf<EditorTarget?>(null) }
     val now by rememberNow()
+    var editorTarget by remember { mutableStateOf<EditorTarget?>(null) }
+    val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    val showMessage: (String) -> Unit = { message -> scope.launch { snackbar.showSnackbar(message) } }
+    val importFlow = rememberImportFlowState()
+    val parentMode by viewModel.parentMode.collectAsState()
+    val profiles by viewModel.profiles.collectAsState()
+    val activeProfileId by viewModel.activeProfileId.collectAsState()
+    val everyone by viewModel.everyone.collectAsState()
+
+    // Switching person closes the editor, so it can never save into the wrong week
+    LaunchedEffect(activeProfileId) { editorTarget = null }
+
+    val addSession = { editorTarget = EditorTarget.New(pagerState.currentPage) }
+    val args = ScheduleLayoutArgs(
+        pagerState = pagerState,
+        now = now,
+        week = week,
+        onSelectDay = { day -> scope.launch { pagerState.animateScrollToPage(day) } },
+        onSessionClick = { editorTarget = EditorTarget.Edit(it) },
+        onAdd = addSession,
+        onScan = { importFlow.scan(context, showMessage) },
+        onShare = onShare,
+        onSettings = onOpenSettings,
+    )
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Schedule") },
-                actions = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
-                    }
-                },
-            )
-        },
+        containerColor = tokens.background,
+        snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButtonPosition = if (tokens.style == AppStyle.NIGHT) FabPosition.Center else FabPosition.End,
         floatingActionButton = {
-            FloatingActionButton(onClick = { editorTarget = EditorTarget.New(pagerState.currentPage) }) {
-                Icon(Icons.Default.Add, contentDescription = "Add session")
+            when (tokens.style) {
+                AppStyle.TIMELINE -> TimelineAddButton(addSession)
+                AppStyle.TODAY -> TodayAddButton(addSession)
+                AppStyle.NIGHT -> NightAddButton(addSession)
             }
         },
     ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-            ScrollableTabRow(selectedTabIndex = pagerState.currentPage) {
-                dayNames.forEachIndexed { index, day ->
-                    Tab(
-                        selected = pagerState.currentPage == index,
-                        onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
-                        text = { Text(day) },
-                    )
-                }
-            }
-
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                val sessions by viewModel.sessions(page).collectAsState()
-                DayScreen(
-                    dayIndex = page,
-                    sessions = sessions,
-                    now = now,
-                    onSessionClick = { editorTarget = EditorTarget.Edit(it) },
+        Column(Modifier.padding(innerPadding)) {
+            // Parent mode: whose week this is, and where everyone is right now
+            val activeId = activeProfileId
+            if (parentMode && activeId != null) {
+                FamilyBar(
+                    profiles = profiles,
+                    activeId = activeId,
+                    onSelect = viewModel::setActiveProfile,
+                    onAddChild = importFlow::startAddChild,
                 )
+                if (profiles.size >= 2) RightNowStrip(profiles, everyone, now, onSelect = viewModel::setActiveProfile)
+            }
+            Box(Modifier.weight(1f)) {
+                when (tokens.style) {
+                    AppStyle.TIMELINE -> TimelineSchedule(args)
+                    AppStyle.TODAY -> TodaySchedule(args)
+                    AppStyle.NIGHT -> NightSchedule(args)
+                }
             }
         }
     }
 
+    ImportFlowDialogs(
+        state = importFlow,
+        actions = ImportActions(
+            parentMode = parentMode,
+            profiles = profiles,
+            importIntoActive = viewModel::importSchedule,
+            importInto = viewModel::importInto,
+            importAsNewChild = viewModel::importAsNewChild,
+            addChild = viewModel::addChild,
+            activate = viewModel::setActiveProfile,
+        ),
+        onMessage = showMessage,
+    )
+
     editorTarget?.let { target ->
-        SessionEditorSheet(
+        SessionEditor(
             target = target,
+            week = week.orEmpty(),
             classrooms = classrooms,
             subjects = subjects,
             onSave = viewModel::saveSession,
@@ -117,106 +135,4 @@ fun ScheduleScreen(
             onDismiss = { editorTarget = null },
         )
     }
-}
-
-/** [sessions] is null while the day is still loading from the database. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DayScreen(
-    dayIndex: Int,
-    sessions: List<ClassSession>?,
-    now: Now,
-    onSessionClick: (ClassSession) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var isRefreshing by remember { mutableStateOf(false) }
-    var reloadCount by remember { mutableIntStateOf(0) }
-    val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
-
-    // Once the day has loaded, and after every pull-to-refresh, jump to the ongoing session
-    // (or stay at the top if nothing is on right now).
-    val loaded = sessions != null
-    LaunchedEffect(loaded, reloadCount) {
-        val list = sessions ?: return@LaunchedEffect
-        val index = ongoingIndex(dayIndex, list)
-        if (reloadCount == 0) listState.scrollToItem(index) else listState.animateScrollToItem(index)
-    }
-
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = {
-            // Data is live from the database, so refreshing only re-centres on the current session
-            scope.launch {
-                isRefreshing = true
-                delay(400)
-                reloadCount++
-                isRefreshing = false
-            }
-        },
-        modifier = modifier.fillMaxSize(),
-    ) {
-        // The list is always present (even when empty) so the pull gesture works on every day
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            // Extra bottom space so the FAB never covers the last tile
-            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            when {
-                sessions == null -> Unit
-                sessions.isEmpty() -> item {
-                    Box(
-                        modifier = Modifier.fillParentMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "No classes on ${dayNames[dayIndex]} 🎉\nTap + to add one",
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                else -> items(sessions, key = { it.id }) { session ->
-                    ScheduleTile(
-                        session = session,
-                        isNow = dayIndex == now.day && session.isOngoingAt(now.minutes),
-                        onClick = { onSessionClick(session) },
-                        modifier = Modifier.animateItem(),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** The current day of the week (Monday = 0) and minute of the day. */
-private data class Now(val day: Int, val minutes: Int)
-
-/**
- * The current time, updated at the start of every minute while the screen is visible,
- * and refreshed straight away when the app comes back to the foreground.
- */
-@Composable
-private fun rememberNow(): State<Now> {
-    val now = remember { mutableStateOf(Now(currentDayIndex(), currentMinutes())) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(lifecycle) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                now.value = Now(currentDayIndex(), currentMinutes())
-                delay(60_000 - System.currentTimeMillis() % 60_000)
-            }
-        }
-    }
-    return now
-}
-
-/** Index of the session happening right now (today's tab only), or 0 (the top) if there is none. */
-private fun ongoingIndex(dayIndex: Int, sessions: List<ClassSession>): Int {
-    if (dayIndex != currentDayIndex()) return 0
-    val now = currentMinutes()
-    return sessions.indexOfFirst { it.isOngoingAt(now) }.coerceAtLeast(0)
 }

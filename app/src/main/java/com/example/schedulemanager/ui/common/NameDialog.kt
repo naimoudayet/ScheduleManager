@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.example.schedulemanager.data.SaveNameResult
+import com.example.schedulemanager.model.MAX_NAME_LENGTH
 import com.example.schedulemanager.model.TileColors
 import kotlinx.coroutines.launch
 
@@ -52,7 +53,7 @@ fun NameDialog(
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it; error = null },
+                    onValueChange = { if (it.length <= MAX_NAME_LENGTH) { name = it; error = null } },
                     label = { Text(label) },
                     singleLine = true,
                     isError = error != null,

@@ -57,9 +57,16 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     onBack: () -> Unit,
     onManage: (ItemKind) -> Unit,
+    onOpenFamily: () -> Unit,
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory),
 ) {
     val themeMode by viewModel.themeMode.collectAsState()
+    val appStyle by viewModel.appStyle.collectAsState()
+    val parentMode by viewModel.parentMode.collectAsState()
+    val profiles by viewModel.profiles.collectAsState()
+    val activeProfileId by viewModel.activeProfileId.collectAsState()
+    val use24Hour by viewModel.use24Hour.collectAsState()
+    val remindersEnabled by viewModel.remindersEnabled.collectAsState()
     var confirmingReset by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -82,7 +89,10 @@ fun SettingsScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState()),
         ) {
-            SectionHeader("Appearance")
+            SectionHeader("Themes")
+            ThemePicker(selected = appStyle, onSelect = viewModel::setAppStyle)
+
+            SectionHeader("Appearance", Modifier.padding(top = 16.dp))
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -98,6 +108,30 @@ fun SettingsScreen(
                 }
             }
 
+            SectionHeader("Time format", Modifier.padding(top = 16.dp))
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+            ) {
+                val options = listOf(false to "12-hour", true to "24-hour")
+                options.forEachIndexed { index, (value, label) ->
+                    SegmentedButton(
+                        selected = use24Hour == value,
+                        onClick = { viewModel.setUse24Hour(value) },
+                        shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                    ) { Text(label) }
+                }
+            }
+
+            SectionHeader("Notifications", Modifier.padding(top = 16.dp))
+            ReminderSettings(
+                enabled = remindersEnabled,
+                onEnabledChange = viewModel::setRemindersEnabled,
+                canScheduleExact = viewModel::canScheduleExactAlarms,
+                onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } },
+            )
+
             SectionHeader("Manage", Modifier.padding(top = 16.dp))
             ItemKind.entries.forEach { kind ->
                 val count by viewModel.counts.getValue(kind).collectAsState()
@@ -111,6 +145,16 @@ fun SettingsScreen(
                     onClick = { onManage(kind) },
                 )
             }
+
+            SectionHeader("Family", Modifier.padding(top = 16.dp))
+            ParentModeSettings(
+                parentMode = parentMode,
+                profiles = profiles,
+                activeProfileId = activeProfileId,
+                onTurnOn = viewModel::turnOnParentMode,
+                onTurnOff = viewModel::turnOffParentMode,
+                onOpenFamily = onOpenFamily,
+            )
 
             SectionHeader("Danger zone", Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.error)
             DangerZoneCard(onReset = { confirmingReset = true })

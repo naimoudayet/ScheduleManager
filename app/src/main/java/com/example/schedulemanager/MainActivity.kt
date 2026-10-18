@@ -7,23 +7,30 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.schedulemanager.model.AppStyle
 import com.example.schedulemanager.model.ItemKind
 import com.example.schedulemanager.model.ThemeMode
+import com.example.schedulemanager.ui.common.LocalUse24Hour
+import com.example.schedulemanager.ui.family.FamilyScreen
 import com.example.schedulemanager.ui.manage.ManageItemsScreen
 import com.example.schedulemanager.ui.schedule.ScheduleScreen
 import com.example.schedulemanager.ui.settings.SettingsScreen
+import com.example.schedulemanager.ui.share.ShareScheduleScreen
 import com.example.schedulemanager.ui.theme.ScheduleManagerTheme
 
 private object Routes {
     const val SCHEDULE = "schedule"
     const val SETTINGS = "settings"
     const val MANAGE = "manage/{kind}"
+    const val SHARE = "share"
+    const val FAMILY = "family"
 
     fun manage(kind: ItemKind) = "manage/${kind.name}"
 }
@@ -36,6 +43,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
+            val use24Hour by settings.use24Hour.collectAsState(initial = true)
+            val appStyle by settings.appStyle.collectAsState(initial = AppStyle.TIMELINE)
             val darkTheme = when (themeMode) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
@@ -51,21 +60,33 @@ class MainActivity : ComponentActivity() {
                 onDispose {}
             }
 
-            ScheduleManagerTheme(darkTheme = darkTheme) {
-                val navController = rememberNavController()
-                NavHost(navController = navController, startDestination = Routes.SCHEDULE) {
-                    composable(Routes.SCHEDULE) {
-                        ScheduleScreen(onOpenSettings = { navController.navigate(Routes.SETTINGS) })
-                    }
-                    composable(Routes.SETTINGS) {
-                        SettingsScreen(
-                            onBack = { navController.popBackStack() },
-                            onManage = { kind -> navController.navigate(Routes.manage(kind)) },
-                        )
-                    }
-                    composable(Routes.MANAGE) { entry ->
-                        val kind = ItemKind.valueOf(entry.arguments?.getString("kind") ?: ItemKind.CLASSROOM.name)
-                        ManageItemsScreen(kind = kind, onBack = { navController.popBackStack() })
+            ScheduleManagerTheme(style = appStyle, darkTheme = darkTheme) {
+                CompositionLocalProvider(LocalUse24Hour provides use24Hour) {
+                    val navController = rememberNavController()
+                    NavHost(navController = navController, startDestination = Routes.SCHEDULE) {
+                        composable(Routes.SCHEDULE) {
+                            ScheduleScreen(
+                                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                                onShare = { navController.navigate(Routes.SHARE) },
+                            )
+                        }
+                        composable(Routes.SETTINGS) {
+                            SettingsScreen(
+                                onBack = { navController.popBackStack() },
+                                onManage = { kind -> navController.navigate(Routes.manage(kind)) },
+                                onOpenFamily = { navController.navigate(Routes.FAMILY) },
+                            )
+                        }
+                        composable(Routes.FAMILY) {
+                            FamilyScreen(onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.SHARE) {
+                            ShareScheduleScreen(onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.MANAGE) { entry ->
+                            val kind = ItemKind.valueOf(entry.arguments?.getString("kind") ?: ItemKind.CLASSROOM.name)
+                            ManageItemsScreen(kind = kind, onBack = { navController.popBackStack() })
+                        }
                     }
                 }
             }

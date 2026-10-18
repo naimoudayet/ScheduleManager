@@ -105,3 +105,80 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_sessions_subject_id` ON `sessions` (`subject_id`)")
     }
 }
+
+
+/** Avatar color of the first profile ("Me"), as a signed ARGB int (0xFF6B7280). */
+const val DEFAULT_PROFILE_COLOR = -9735552
+
+/**
+ * v4 -> v5: profiles (parent mode). Everything that exists becomes profile 1, "Me", and classrooms,
+ * subjects and sessions are rebuilt with a profile_id. Names become unique per profile.
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `profiles` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`name` TEXT NOT NULL COLLATE NOCASE, `color` INTEGER NOT NULL, `is_me` INTEGER NOT NULL, " +
+                "`reminders` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)"
+        )
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_profiles_name` ON `profiles` (`name`)")
+        db.execSQL(
+            "INSERT INTO profiles (id, name, color, is_me, reminders, updated_at) VALUES (1, 'Me', ?, 1, 1, ?)",
+            arrayOf<Any>(DEFAULT_PROFILE_COLOR, System.currentTimeMillis()),
+        )
+
+        // Park the sessions in a plain table and drop the old one first, so no table ever points at
+        // a dropped classroom or subject table (this works whether or not foreign keys are enforced)
+        db.execSQL(
+            "CREATE TABLE sessions_backup AS " +
+                "SELECT id, day_of_week, start_minutes, end_minutes, subject_id, classroom_id FROM sessions"
+        )
+        db.execSQL("DROP TABLE sessions")
+
+        db.execSQL(
+            "CREATE TABLE `classrooms_new` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `profile_id` INTEGER NOT NULL, " +
+                "`name` TEXT NOT NULL COLLATE NOCASE, " +
+                "FOREIGN KEY(`profile_id`) REFERENCES `profiles`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION )"
+        )
+        db.execSQL("INSERT INTO classrooms_new (id, profile_id, name) SELECT id, 1, name FROM classrooms")
+        db.execSQL("DROP TABLE classrooms")
+        db.execSQL("ALTER TABLE classrooms_new RENAME TO classrooms")
+
+        db.execSQL(
+            "CREATE TABLE `subjects_new` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `profile_id` INTEGER NOT NULL, " +
+                "`name` TEXT NOT NULL COLLATE NOCASE, " +
+                "`background_color` INTEGER NOT NULL DEFAULT $DEFAULT_BACKGROUND, " +
+                "`foreground_color` INTEGER NOT NULL DEFAULT $DEFAULT_FOREGROUND, " +
+                "FOREIGN KEY(`profile_id`) REFERENCES `profiles`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION )"
+        )
+        db.execSQL(
+            "INSERT INTO subjects_new (id, profile_id, name, background_color, foreground_color) " +
+                "SELECT id, 1, name, background_color, foreground_color FROM subjects"
+        )
+        db.execSQL("DROP TABLE subjects")
+        db.execSQL("ALTER TABLE subjects_new RENAME TO subjects")
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `sessions` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `profile_id` INTEGER NOT NULL, " +
+                "`day_of_week` INTEGER NOT NULL, `start_minutes` INTEGER NOT NULL, `end_minutes` INTEGER NOT NULL, " +
+                "`subject_id` INTEGER NOT NULL, `classroom_id` INTEGER NOT NULL, " +
+                "FOREIGN KEY(`profile_id`) REFERENCES `profiles`(`id`) ON UPDATE NO ACTION ON DELETE NO ACTION , " +
+                "FOREIGN KEY(`classroom_id`) REFERENCES `classrooms`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT , " +
+                "FOREIGN KEY(`subject_id`) REFERENCES `subjects`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT )"
+        )
+        db.execSQL(
+            "INSERT INTO sessions (id, profile_id, day_of_week, start_minutes, end_minutes, subject_id, classroom_id) " +
+                "SELECT id, 1, day_of_week, start_minutes, end_minutes, subject_id, classroom_id FROM sessions_backup"
+        )
+        db.execSQL("DROP TABLE sessions_backup")
+
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_classrooms_profile_id_name` ON `classrooms` (`profile_id`, `name`)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_subjects_profile_id_name` ON `subjects` (`profile_id`, `name`)")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_sessions_profile_id_day_of_week_start_minutes` " +
+                "ON `sessions` (`profile_id`, `day_of_week`, `start_minutes`)"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_sessions_classroom_id` ON `sessions` (`classroom_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_sessions_subject_id` ON `sessions` (`subject_id`)")
+    }
+}

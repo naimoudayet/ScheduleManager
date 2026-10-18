@@ -26,6 +26,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.example.schedulemanager.model.ClassSession
 import com.example.schedulemanager.model.SessionPalette
 import com.example.schedulemanager.model.formatTime
+import com.example.schedulemanager.ui.common.LocalUse24Hour
 import com.example.schedulemanager.model.time
 import com.example.schedulemanager.ui.theme.ScheduleManagerTheme
 
@@ -69,6 +71,7 @@ fun ScheduleTile(
 @Composable
 private fun TileContent(session: ClassSession, isNow: Boolean) {
     val fg = session.foregroundColor
+    val use24Hour = LocalUse24Hour.current
     Row(
         modifier = Modifier
             .height(IntrinsicSize.Min)
@@ -82,7 +85,7 @@ private fun TileContent(session: ClassSession, isNow: Boolean) {
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             SingleLineText(
-                text = formatTime(session.startMinutes),
+                text = formatTime(session.startMinutes, use24Hour),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -95,7 +98,7 @@ private fun TileContent(session: ClassSession, isNow: Boolean) {
                     .background(fg.copy(alpha = 0.25f))
             )
             SingleLineText(
-                text = formatTime(session.endMinutes),
+                text = formatTime(session.endMinutes, use24Hour),
                 style = MaterialTheme.typography.bodyMedium,
                 color = fg.copy(alpha = 0.7f),
             )
@@ -234,6 +237,21 @@ private fun ScheduleTilePreview() {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             previewSessions.forEachIndexed { i, session -> ScheduleTile(session, isNow = i == 1) }
+        }
+    }
+}
+
+@Preview(showBackground = true, name = "12-hour, narrow", widthDp = 300)
+@Composable
+private fun ScheduleTile12HourPreview() {
+    ScheduleManagerTheme {
+        CompositionLocalProvider(LocalUse24Hour provides false) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                previewSessions.forEachIndexed { i, session -> ScheduleTile(session, isNow = i == 1) }
+            }
         }
     }
 }
